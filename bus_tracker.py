@@ -85,39 +85,50 @@ def check_bus_availability():
     seen_route_ids = set()
     
     for url in [url1, url2]:
-        try:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Checking URL for {DATE}...")
-            response = scraper.post(url, headers=headers, json={}, timeout=15)
-            
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                except Exception as e:
-                    print(f"Error parsing JSON. Response snippet: {response.text[:300]}")
-                    continue
+        response = None
+        for attempt in range(3):
+            try:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Checking URL for {DATE} (Attempt {attempt+1}/3)...")
+                response = scraper.post(url, headers=headers, json={}, timeout=15)
                 
-                # Check response structure
-                if data.get("success") and "data" in data and "inventories" in data["data"]:
-                    inventories = data["data"]["inventories"]
-                    
-                    for bus in inventories:
-                        travels_name = bus.get("travelsName", "").upper()
-                        operator_id = bus.get("operatorId")
-                        
-                        # Identify NBSTC buses by name or operator ID
-                        if "NBSTC" in travels_name or operator_id == 24978:
-                            route_id = bus.get('routeId')
-                            if route_id not in seen_route_ids:
-                                bus['checked_date'] = DATE
-                                found_buses.append(bus)
-                                seen_route_ids.add(route_id)
+                if response.status_code == 200:
+                    break
                 else:
-                    print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
-            else:
-                print(f"Failed to fetch data, status code: {response.status_code}")
-                
+                    print(f"Failed to fetch data, status code: {response.status_code}. Retrying...")
+                    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+                    time.sleep(2)
+            except Exception as e:
+                print(f"Error fetching data: {type(e).__name__} - {e}. Retrying...")
+                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+                time.sleep(2)
+        
+        if not response or response.status_code != 200:
+            print(f"Skipping URL after 3 failed attempts.")
+            continue
+            
+        try:
+            data = response.json()
         except Exception as e:
-            print(f"Error fetching data: {e}")
+            print(f"Error parsing JSON. Response snippet: {response.text[:300]}")
+            continue
+        
+        # Check response structure
+        if data.get("success") and "data" in data and "inventories" in data["data"]:
+            inventories = data["data"]["inventories"]
+            
+            for bus in inventories:
+                travels_name = bus.get("travelsName", "").upper()
+                operator_id = bus.get("operatorId")
+                
+                # Identify NBSTC buses by name or operator ID
+                if "NBSTC" in travels_name or operator_id == 24978:
+                    route_id = bus.get('routeId')
+                    if route_id not in seen_route_ids:
+                        bus['checked_date'] = DATE
+                        found_buses.append(bus)
+                        seen_route_ids.add(route_id)
+        else:
+            print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
             
     if found_buses:
         print(f"Found {len(found_buses)} NBSTC buses!")
