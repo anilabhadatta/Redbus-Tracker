@@ -50,6 +50,17 @@ def send_email(subject, body):
         except Exception as e:
             print(f"Error sending email to {email_address}: {e}")
 
+def get_scraper():
+    import ssl
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.orig_wrap_socket = ctx.wrap_socket
+    return cloudscraper.create_scraper(
+        browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True},
+        ssl_context=ctx
+    )
+
 def check_bus_availability():
     global has_sent_email
     
@@ -58,7 +69,7 @@ def check_bus_availability():
         return
         
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
-    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+    scraper = get_scraper()
     
     headers = {
         "accept": "*/*",
@@ -95,11 +106,11 @@ def check_bus_availability():
                     break
                 else:
                     print(f"Failed to fetch data, status code: {response.status_code}. Retrying...")
-                    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+                    scraper = get_scraper()
                     time.sleep(2)
             except Exception as e:
                 print(f"Error fetching data: {type(e).__name__} - {e}. Retrying...")
-                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+                scraper = get_scraper()
                 time.sleep(2)
         
         if not response or response.status_code != 200:
