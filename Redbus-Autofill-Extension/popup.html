@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Redbus Autofill</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; width: 350px; padding: 15px; margin: 0; background-color: #f9f9f9; }
+        h3 { margin-top: 0; color: #d84e55; text-align: center; }
+        .info { font-size: 11.5px; color: #444; margin-bottom: 12px; text-align: center; background: #ffebeb; padding: 8px; border-radius: 4px; }
+        .passenger { background: white; padding: 10px; margin-bottom: 10px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .passenger label { display: block; font-size: 12px; color: #555; margin-bottom: 3px; font-weight: bold; }
+        .passenger input { width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+        .options { background: white; padding: 10px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        .options label { font-size: 13px; cursor: pointer; }
+        .options strong { display: block; margin-bottom: 5px; color: #333; }
+        button { width: 100%; padding: 12px; background: #d84e55; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.2s; }
+        button:hover { background: #b03e44; }
+        
+        .radio-group { display: flex; flex-direction: column; gap: 8px; margin-top: 5px; }
+        .radio-option { display: flex; align-items: center; gap: 5px; }
+    </style>
+</head>
+<body>
+    <h3>Redbus Autofill</h3>
+    <div class="info">Changes are <b>auto-saved</b>. The script will run automatically as soon as the passenger modal appears on Redbus.</div>
+    
+    <div id="passengers-container">
+        <!-- 3 Passenger Slots -->
+        <div class="passenger">
+            <strong>Passenger 1</strong>
+            <div style="margin-top: 8px;"></div>
+            <label>Name (Match exact name on page)</label>
+            <input type="text" id="p1-name" placeholder="e.g. Pragatika Saha">
+            <label>Aadhaar ID</label>
+            <input type="text" id="p1-id" placeholder="Aadhaar Number">
+        </div>
+        <div class="passenger">
+            <strong>Passenger 2</strong>
+            <div style="margin-top: 8px;"></div>
+            <label>Name</label>
+            <input type="text" id="p2-name" placeholder="e.g. Aryashree Mazumder">
+            <label>Aadhaar ID</label>
+            <input type="text" id="p2-id" placeholder="Aadhaar Number">
+        </div>
+        <div class="passenger">
+            <strong>Passenger 3</strong>
+            <div style="margin-top: 8px;"></div>
+            <label>Name</label>
+            <input type="text" id="p3-name" placeholder="e.g. Anilabha Datta">
+            <label>Aadhaar ID</label>
+            <input type="text" id="p3-id" placeholder="Aadhaar Number">
+        </div>
+    </div>
+
+    <div class="options">
+        <strong>Free Cancellation</strong>
+        <div class="radio-group">
+            <div class="radio-option">
+                <input type="radio" name="cancellation" value="yes" id="cancelYes">
+                <label for="cancelYes">Yes (Add Free Cancellation)</label>
+            </div>
+            <div class="radio-option">
+                <input type="radio" name="cancellation" value="no" id="cancelNo" checked>
+                <label for="cancelNo">No (Don't add Free Cancellation)</label>
+            </div>
+        </div>
+    </div>
+
+    <button id="autofillBtn">Save Details & Autofill Now</button>
+
+    <script src="popup.js"></script>
+</body>
+</html>

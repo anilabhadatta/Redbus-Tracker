@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Redbus Autofill",
+  "version": "1.1",
+  "description": "Autofill passenger Aadhaar details and select cancellation option on Redbus.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.redbus.in/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.redbus.in/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

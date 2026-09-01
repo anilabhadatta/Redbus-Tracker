@@ -20,10 +20,10 @@ TO_EMAILS = os.getenv("TO_EMAILS", "anilabhadatta@gmail.com").split(",")
 
 # Tracker Settings
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
-STOP_AFTER_FIND = True # Stop checking after sending the first email
+RESEND_INTERVAL_SECONDS = int(os.getenv("RESEND_INTERVAL_SECONDS", str(2 * 60 * 60)))  # Default: 2 hours
 # ---------------------
 
-has_sent_email = False
+last_email_sent_at = None  # Timestamp of the last sent email
 
 def send_email(subject, body):
     url = "https://hourmailer.p.rapidapi.com/send"
@@ -62,11 +62,7 @@ def get_scraper():
     )
 
 def check_bus_availability():
-    global has_sent_email
-    
-    if has_sent_email and STOP_AFTER_FIND:
-        print("Already found buses and sent email. Waiting indefinitely or exiting...")
-        return
+    global last_email_sent_at
         
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
     scraper = get_scraper()
@@ -146,33 +142,40 @@ def check_bus_availability():
         for b in found_buses:
             print(f" - {b.get('travelsName')} on {b.get('checked_date')} (Route ID: {b.get('routeId')})")
             
-        if not has_sent_email:
+        now = time.time()
+        time_since_last = now - last_email_sent_at if last_email_sent_at else None
+        cooldown_remaining = RESEND_INTERVAL_SECONDS - time_since_last if time_since_last is not None else 0
+
+        if last_email_sent_at is not None and time_since_last < RESEND_INTERVAL_SECONDS:
+            next_send_in = int(cooldown_remaining / 60)
+            print(f"Email already sent {int(time_since_last / 60)} min ago. Next resend in ~{next_send_in} min.")
+        else:
             print("Sending email notification...")
             ist_timezone = timezone(timedelta(hours=5, minutes=30))
             current_ist_time = datetime.now(ist_timezone).strftime('%Y-%m-%d %H:%M:%S')
-            
+
             subject = "NBSTC Bus Found on RedBus!"
-            
+
             body = f"<p><strong>Mail generated at:</strong> {current_ist_time} IST</p>"
             body += "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif; text-align: left;'>"
             body += "<tr style='background-color: #f2f2f2;'>"
             body += "<th>Bus Name</th><th>Date</th><th>Time</th><th>Type</th><th>Seats</th><th>Fare</th>"
             body += "</tr>"
-            
+
             for b in found_buses:
                 name = b.get('travelsName', '')
                 date = b.get('checked_date', '')
-                
+
                 # Try getting serviceStartTime or departureTime
                 time_str = b.get('serviceStartTime', b.get('departureTime', ''))
                 # Just take the time part if it's a full datetime string
                 if ' ' in time_str:
                     time_str = time_str.split(' ')[1]
                 time_str = time_str[:12]
-                
+
                 bus_type = b.get('busType', '')
                 seats = str(b.get('availableSeats', ''))
-                
+
                 # Parse fareDetailsBySeatType
                 fare_info = []
                 fare_details = b.get('fareDetailsBySeatType', {})
@@ -181,28 +184,26 @@ def check_bus_availability():
                         price = fares[0].get('originalPrice', '')
                         count = fares[0].get('count', '')
                         fare_info.append(f"{seat_type}: ₹{price} ({count} seats)")
-                
+
                 fare_str = "<br>".join(fare_info)
                 if not fare_str:
                     fare_list = b.get('fareList', [])
                     if fare_list:
                         fare_str = str(fare_list[0])
-                
+
                 body += f"<tr><td>{name}</td><td>{date}</td><td>{time_str}</td><td>{bus_type}</td><td>{seats}</td><td>{fare_str}</td></tr>"
-            
+
             body += "</table>"
-            
+
             send_email(subject, body)
-            has_sent_email = True
-        else:
-            print("Email already sent previously. Not sending again.")
+            last_email_sent_at = time.time()
     else:
         print("No NBSTC buses found at this time.")
 
 def main():
     print("Starting NBSTC bus tracker...")
     print(f"Parameters: FROM={FROM_CITY}, TO={TO_CITY}, LIMIT={LIMIT}")
-    print(f"Checking every {CHECK_INTERVAL_SECONDS} seconds. Stop after finding: {STOP_AFTER_FIND}.\n")
+    print(f"Checking every {CHECK_INTERVAL_SECONDS} seconds. Resend email every {RESEND_INTERVAL_SECONDS // 60} minutes if buses found.\n")
     
     while True:
         check_bus_availability()
