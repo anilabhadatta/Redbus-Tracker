@@ -20,10 +20,10 @@ TO_EMAILS = os.getenv("TO_EMAILS", "anilabhadatta@gmail.com").split(",")
 
 # Tracker Settings
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
-RESEND_INTERVAL_SECONDS = int(os.getenv("RESEND_INTERVAL_SECONDS", str(2 * 60 * 60)))  # Default: 2 hours
 # ---------------------
 
-last_email_sent_at = None  # Timestamp of the last sent email
+# Tracks the set of route IDs from the last notification to detect changes
+previous_bus_route_ids = None  # None = first run (no prior state)
 
 def send_email(subject, body):
     url = "https://hourmailer.p.rapidapi.com/send"
@@ -62,7 +62,7 @@ def get_scraper():
     )
 
 def check_bus_availability():
-    global last_email_sent_at
+    global previous_bus_route_ids
         
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
     scraper = get_scraper()
@@ -137,32 +137,40 @@ def check_bus_availability():
         else:
             print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
             
+    current_bus_route_ids = frozenset(b.get('routeId') for b in found_buses)
+
     if found_buses:
         print(f"Found {len(found_buses)} NBSTC buses!")
         for b in found_buses:
             print(f" - {b.get('travelsName')} on {b.get('checked_date')} (Route ID: {b.get('routeId')})")
-            
-        now = time.time()
-        time_since_last = now - last_email_sent_at if last_email_sent_at else None
-        cooldown_remaining = RESEND_INTERVAL_SECONDS - time_since_last if time_since_last is not None else 0
 
-        if last_email_sent_at is not None and time_since_last < RESEND_INTERVAL_SECONDS:
-            next_send_in = int(cooldown_remaining / 60)
-            print(f"Email already sent {int(time_since_last / 60)} min ago. Next resend in ~{next_send_in} min.")
+        # Determine newly added buses since last check
+        added = current_bus_route_ids - previous_bus_route_ids if previous_bus_route_ids is not None else current_bus_route_ids
+
+        if not added:
+            print("No new buses added since last check — skipping email.")
         else:
-            print("Sending email notification...")
+            if previous_bus_route_ids is None:
+                change_reason = f"First detection: {len(added)} bus(es) found."
+            else:
+                change_reason = f"{len(added)} new bus(es) added."
+
+            print(f"{change_reason} Sending email notification...")
             ist_timezone = timezone(timedelta(hours=5, minutes=30))
             current_ist_time = datetime.now(ist_timezone).strftime('%Y-%m-%d %H:%M:%S')
 
             subject = "NBSTC Bus Found on RedBus!"
 
             body = f"<p><strong>Mail generated at:</strong> {current_ist_time} IST</p>"
+            body += f"<p><strong>Change detected:</strong> {change_reason}</p>"
             body += "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif; text-align: left;'>"
             body += "<tr style='background-color: #f2f2f2;'>"
             body += "<th>Bus Name</th><th>Date</th><th>Time</th><th>Type</th><th>Seats</th><th>Fare</th>"
             body += "</tr>"
 
-            for b in found_buses:
+            # Only include the newly added buses in the email
+            new_buses = [b for b in found_buses if b.get('routeId') in added]
+            for b in new_buses:
                 name = b.get('travelsName', '')
                 date = b.get('checked_date', '')
 
@@ -196,15 +204,19 @@ def check_bus_availability():
             body += "</table>"
 
             send_email(subject, body)
-            last_email_sent_at = time.time()
+
+        # Always update state to reflect current bus list (handles removals silently)
+        previous_bus_route_ids = current_bus_route_ids
     else:
         print("No NBSTC buses found at this time.")
+        # Reset state so re-appearance of buses triggers a fresh email
+        previous_bus_route_ids = current_bus_route_ids
 
 def main():
     print("Starting NBSTC bus tracker...")
     print(f"Parameters: FROM={FROM_CITY}, TO={TO_CITY}, LIMIT={LIMIT}")
-    print(f"Checking every {CHECK_INTERVAL_SECONDS} seconds. Resend email every {RESEND_INTERVAL_SECONDS // 60} minutes if buses found.\n")
-    
+    print(f"Checking every {CHECK_INTERVAL_SECONDS} seconds. Email sent only when bus list changes.\n")
+
     while True:
         check_bus_availability()
         print(f"Waiting for {CHECK_INTERVAL_SECONDS} seconds before next check...\n")
