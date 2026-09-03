@@ -22,8 +22,8 @@ TO_EMAILS = os.getenv("TO_EMAILS", "anilabhadatta@gmail.com").split(",")
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
 # ---------------------
 
-# Tracks the set of route IDs from the last notification to detect changes
-previous_bus_route_ids = None  # None = first run (no prior state)
+# Tracks the set of bus names from the last notification to detect changes
+previous_bus_names = None  # None = first run (no prior state)
 
 def send_email(subject, body):
     url = "https://hourmailer.p.rapidapi.com/send"
@@ -62,7 +62,7 @@ def get_scraper():
     )
 
 def check_bus_availability():
-    global previous_bus_route_ids
+    global previous_bus_names
         
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
     scraper = get_scraper()
@@ -129,28 +129,27 @@ def check_bus_availability():
                 
                 # Identify NBSTC buses by name or operator ID
                 if "NBSTC" in travels_name or operator_id == 24978:
-                    route_id = bus.get('routeId')
-                    if route_id not in seen_route_ids:
+                    if travels_name not in seen_route_ids:
                         bus['checked_date'] = DATE
                         found_buses.append(bus)
-                        seen_route_ids.add(route_id)
+                        seen_route_ids.add(travels_name)
         else:
             print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
             
-    current_bus_route_ids = frozenset(b.get('routeId') for b in found_buses)
+    current_bus_names = frozenset(b.get('travelsName', '').upper() for b in found_buses)
 
     if found_buses:
         print(f"Found {len(found_buses)} NBSTC buses!")
         for b in found_buses:
-            print(f" - {b.get('travelsName')} on {b.get('checked_date')} (Route ID: {b.get('routeId')})")
+            print(f" - {b.get('travelsName')} on {b.get('checked_date')}")
 
-        # Determine newly added buses since last check
-        added = current_bus_route_ids - previous_bus_route_ids if previous_bus_route_ids is not None else current_bus_route_ids
+        # Determine newly added buses since last check (by name only)
+        added = current_bus_names - previous_bus_names if previous_bus_names is not None else current_bus_names
 
         if not added:
             print("No new buses added since last check — skipping email.")
         else:
-            if previous_bus_route_ids is None:
+            if previous_bus_names is None:
                 change_reason = f"First detection: {len(added)} bus(es) found."
             else:
                 change_reason = f"{len(added)} new bus(es) added."
@@ -169,7 +168,7 @@ def check_bus_availability():
             body += "</tr>"
 
             # Only include the newly added buses in the email
-            new_buses = [b for b in found_buses if b.get('routeId') in added]
+            new_buses = [b for b in found_buses if b.get('travelsName', '').upper() in added]
             for b in new_buses:
                 name = b.get('travelsName', '')
                 date = b.get('checked_date', '')
@@ -206,11 +205,11 @@ def check_bus_availability():
             send_email(subject, body)
 
         # Always update state to reflect current bus list (handles removals silently)
-        previous_bus_route_ids = current_bus_route_ids
+        previous_bus_names = current_bus_names
     else:
         print("No NBSTC buses found at this time.")
         # Reset state so re-appearance of buses triggers a fresh email
-        previous_bus_route_ids = current_bus_route_ids
+        previous_bus_names = current_bus_names
 
 def main():
     print("Starting NBSTC bus tracker...")
