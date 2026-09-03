@@ -4,6 +4,7 @@ import requests
 import cloudscraper
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from mail_senders import SmtpSender, HourMailerSender, MailSenderFactory
 
 # Load environment variables
 load_dotenv()
@@ -15,40 +16,29 @@ DATE = os.getenv("DATE", "28-Sep-2026")
 LIMIT = int(os.getenv("LIMIT", "50"))
 
 # Mail Configuration
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
+HOURMAILER_API_KEY = os.getenv("HOURMAILER_API_KEY", "")
+SMTP_HOST     = os.getenv("SMTP_HOST", "")
+SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM     = os.getenv("SMTP_FROM", "")
 TO_EMAILS = os.getenv("TO_EMAILS", "anilabhadatta@gmail.com").split(",")
 
 # Tracker Settings
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
 # ---------------------
 
+# Build mail factory — senders tried in order; first success wins
+mail_factory = MailSenderFactory([
+    SmtpSender(SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM),  # Priority 1
+    HourMailerSender(HOURMAILER_API_KEY),                                        # Priority 2 (fallback)
+])
+
 # Tracks the set of bus names from the last notification to detect changes
 previous_bus_names = None  # None = first run (no prior state)
 
 def send_email(subject, body):
-    url = "https://hourmailer.p.rapidapi.com/send"
-    headers = {
-        "content-type": "application/json",
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": "hourmailer.p.rapidapi.com"
-    }
-    
-    for email_address in TO_EMAILS:
-        email_address = email_address.strip()
-        if not email_address:
-            continue
-            
-        payload = {
-            "toAddress": email_address,
-            "title": subject,
-            "message": body
-        }
-        
-        try:
-            response = requests.request("POST", url, json=payload, headers=headers)
-            print(f"Email sent to {email_address} - API Response: {response.text}")
-        except Exception as e:
-            print(f"Error sending email to {email_address}: {e}")
+    mail_factory.send(TO_EMAILS, subject, body)
 
 def get_scraper():
     import ssl
