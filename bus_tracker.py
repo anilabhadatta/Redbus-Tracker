@@ -152,20 +152,33 @@ def check_bus_availability():
 
             body = f"<p><strong>Mail generated at:</strong> {current_ist_time} IST</p>"
             body += f"<p><strong>Change detected:</strong> {change_reason}</p>"
-            body += "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif; text-align: left;'>"
-            body += "<tr style='background-color: #f2f2f2;'>"
+            body += "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse:collapse; font-family:sans-serif; font-size:13px; text-align:left;'>"
+            body += "<tr style='background-color:#1a1a2e; color:#ffffff;'>"
             body += "<th>Bus Name</th><th>Date</th><th>Time</th><th>Type</th><th>Seats</th><th>Fare</th>"
             body += "</tr>"
 
-            # Only include the newly added buses in the email
-            new_buses = [b for b in found_buses if b.get('travelsName', '').upper() in added]
-            for b in new_buses:
+            # Show ALL buses; highlight newly added ones in green with ★ NEW badge
+            for i, b in enumerate(found_buses):
                 name = b.get('travelsName', '')
+                is_new = name.upper() in added
+
+                if is_new:
+                    row_style = "background-color:#d4edda; font-weight:bold;"
+                elif i % 2 == 0:
+                    row_style = "background-color:#f9f9f9;"
+                else:
+                    row_style = ""
+
+                badge = (
+                    ' &nbsp;<span style="background:#28a745;color:#fff;padding:1px 6px;'
+                    'border-radius:4px;font-size:11px;">★ NEW</span>'
+                    if is_new else ""
+                )
+
                 date = b.get('checked_date', '')
 
                 # Try getting serviceStartTime or departureTime
                 time_str = b.get('serviceStartTime', b.get('departureTime', ''))
-                # Just take the time part if it's a full datetime string
                 if ' ' in time_str:
                     time_str = time_str.split(' ')[1]
                 time_str = time_str[:12]
@@ -188,7 +201,12 @@ def check_bus_availability():
                     if fare_list:
                         fare_str = str(fare_list[0])
 
-                body += f"<tr><td>{name}</td><td>{date}</td><td>{time_str}</td><td>{bus_type}</td><td>{seats}</td><td>{fare_str}</td></tr>"
+                body += (
+                    f"<tr style='{row_style}'>"
+                    f"<td>{name}{badge}</td><td>{date}</td><td>{time_str}</td>"
+                    f"<td>{bus_type}</td><td>{seats}</td><td>{fare_str}</td>"
+                    f"</tr>"
+                )
 
             body += "</table>"
 
