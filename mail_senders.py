@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 mail_senders.py — Mail sender factory with priority-based fallback.
 
