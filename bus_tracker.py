@@ -40,6 +40,63 @@ previous_bus_names = None  # None = first run (no prior state)
 def send_email(subject, body):
     mail_factory.send(TO_EMAILS, subject, body)
 
+def send_telegram(bus_list):
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+    
+    if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+        print("Skipping Telegram notification — credentials not configured.")
+        return
+        
+    try:
+        # Build plain text message using MarkdownV2 format for Telegram
+        text_msg = "🚍 *NBSTC Bus Found on RedBus!*\n\n"
+        for b in bus_list:
+            name = b.get('travelsName', '')
+            date = b.get('checked_date', '')
+            
+            time_str = b.get('serviceStartTime', b.get('departureTime', ''))
+            if ' ' in time_str:
+                time_str = time_str.split(' ')[1]
+            time_str = time_str[:12]
+            
+            bus_type = b.get('busType', '')
+            seats = str(b.get('availableSeats', ''))
+            
+            fare_info = []
+            fare_details = b.get('fareDetailsBySeatType', {})
+            for seat_type, fares in fare_details.items():
+                if isinstance(fares, list) and len(fares) > 0:
+                    price = fares[0].get('originalPrice', '')
+                    fare_info.append(f"₹{price}")
+                    
+            fare_str = ", ".join(fare_info)
+            if not fare_str:
+                fare_list = b.get('fareList', [])
+                if fare_list:
+                    fare_str = f"₹{fare_list[0]}"
+                    
+            text_msg += f"🚌 *{name}*\n"
+            text_msg += f"📅 {date} | 🕒 {time_str}\n"
+            text_msg += f"💺 {seats} seats | 💰 {fare_str}\n"
+            text_msg += f"ℹ️ {bus_type}\n"
+            text_msg += "------------------------\n"
+        
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text_msg,
+            "parse_mode": "Markdown"
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            print("Telegram message sent successfully!")
+        else:
+            print(f"Failed to send Telegram message: {response.text}")
+    except Exception as e:
+        print(f"Failed to send Telegram message: {e}")
+
 def get_scraper():
     import ssl
     ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
@@ -211,6 +268,14 @@ def check_bus_availability():
             body += "</table>"
 
             send_email(subject, body)
+            
+            # Send Telegram notification with all newly found buses
+            new_buses = [b for b in found_buses if b.get('travelsName', '').upper() in added]
+            if not new_buses:
+                new_buses = found_buses
+                
+            if new_buses:
+                send_telegram(new_buses)
 
         # Always update state to reflect current bus list (handles removals silently)
         previous_bus_names = current_bus_names
