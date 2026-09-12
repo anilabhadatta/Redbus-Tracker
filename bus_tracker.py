@@ -98,10 +98,19 @@ def send_telegram(bus_list):
         print(f"Failed to send Telegram message: {e}")
 
 def make_twilio_call(date_str):
+    TWILIO_CALL_ENABLED = os.getenv("TWILIO_CALL_ENABLED", "false").lower() == "true"
+    
+    if not TWILIO_CALL_ENABLED:
+        print("Skipping Twilio voice call — disabled via TWILIO_CALL_ENABLED flag.")
+        return
+
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516")
     TWILIO_CALL_TO = os.getenv("TWILIO_CALL_TO", "+917003346153")
+    
+    max_retries = int(os.getenv("TWILIO_CALL_MAX_RETRIES", "3"))
+    retry_delay = int(os.getenv("TWILIO_CALL_RETRY_DELAY_SEC", "20"))
     
     if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN]):
         print("Skipping Twilio voice call — credentials not configured.")
@@ -114,14 +123,41 @@ def make_twilio_call(date_str):
         # TwiML instructs Twilio to speak the text using Text-to-Speech
         twiml_msg = f'<Response><Say>Redbus ticket found for {date_str}</Say></Response>'
         
-        call = client.calls.create(
-            twiml=twiml_msg,
-            to=TWILIO_CALL_TO,
-            from_=TWILIO_CALL_FROM
-        )
-        print(f"Phone call initiated! Call SID: {call.sid}")
+        for attempt in range(max_retries):
+            try:
+                call = client.calls.create(
+                    twiml=twiml_msg,
+                    to=TWILIO_CALL_TO,
+                    from_=TWILIO_CALL_FROM
+                )
+                print(f"Phone call initiated (Attempt {attempt+1}/{max_retries}). Call SID: {call.sid}")
+                print("Waiting to see if the call is answered...")
+                
+                # Poll the call status to see if they picked up
+                while True:
+                    time.sleep(1)
+                    call_status = client.calls(call.sid).fetch().status
+                    if call_status in ['queued', 'ringing', 'in-progress']:
+                        continue
+                    else:
+                        break
+                
+                print(f"Call ended with status: {call_status}")
+                if call_status == 'completed':
+                    print("Call was picked up successfully!")
+                    return # Exit the function, no need to retry
+                else:
+                    print(f"Call was not answered. (Status: {call_status})")
+            
+            except Exception as e:
+                print(f"Failed to place phone call on attempt {attempt+1}: {e}")
+                
+            if attempt < max_retries - 1:
+                print(f"Retrying call in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                
     except Exception as e:
-        print(f"Failed to place phone call: {e}")
+        print(f"Failed to initialize Twilio client: {e}")
 
 def get_scraper():
     import ssl
