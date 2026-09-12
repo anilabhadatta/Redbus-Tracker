@@ -97,6 +97,39 @@ def send_telegram(bus_list):
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
+def _make_single_twilio_call(client, twiml_msg, call_from, call_to, max_retries, retry_delay):
+    for attempt in range(max_retries):
+        try:
+            call = client.calls.create(
+                twiml=twiml_msg,
+                to=call_to,
+                from_=call_from
+            )
+            print(f"[{call_to}] Phone call initiated (Attempt {attempt+1}/{max_retries}). Call SID: {call.sid}")
+            
+            # Poll the call status to see if they picked up
+            while True:
+                time.sleep(1)
+                call_status = client.calls(call.sid).fetch().status
+                if call_status in ['queued', 'ringing', 'in-progress']:
+                    continue
+                else:
+                    break
+            
+            print(f"[{call_to}] Call ended with status: {call_status}")
+            if call_status == 'completed':
+                print(f"[{call_to}] Call was picked up successfully!")
+                return # Exit the function, no need to retry
+            else:
+                print(f"[{call_to}] Call was not answered. (Status: {call_status})")
+        
+        except Exception as e:
+            print(f"[{call_to}] Failed to place phone call on attempt {attempt+1}: {e}")
+            
+        if attempt < max_retries - 1:
+            print(f"[{call_to}] Retrying call in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+
 def make_twilio_call(date_str):
     TWILIO_CALL_ENABLED = os.getenv("TWILIO_CALL_ENABLED", "false").lower() == "true"
     
@@ -107,7 +140,7 @@ def make_twilio_call(date_str):
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516")
-    TWILIO_CALL_TO = os.getenv("TWILIO_CALL_TO", "+917003346153")
+    twilio_call_to_raw = os.getenv("TWILIO_CALL_TO", "+917003346153")
     
     max_retries = int(os.getenv("TWILIO_CALL_MAX_RETRIES", "3"))
     retry_delay = int(os.getenv("TWILIO_CALL_RETRY_DELAY_SEC", "20"))
@@ -116,45 +149,22 @@ def make_twilio_call(date_str):
         print("Skipping Twilio voice call — credentials not configured.")
         return
         
+    call_to_numbers = [num.strip() for num in twilio_call_to_raw.split(',') if num.strip()]
+    if not call_to_numbers:
+        print("Skipping Twilio voice call — no destination numbers configured.")
+        return
+        
     try:
         from twilio.rest import Client
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        import concurrent.futures
         
-        # TwiML instructs Twilio to speak the text using Text-to-Speech
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         twiml_msg = f'<Response><Say>Redbus ticket found for {date_str}</Say></Response>'
         
-        for attempt in range(max_retries):
-            try:
-                call = client.calls.create(
-                    twiml=twiml_msg,
-                    to=TWILIO_CALL_TO,
-                    from_=TWILIO_CALL_FROM
-                )
-                print(f"Phone call initiated (Attempt {attempt+1}/{max_retries}). Call SID: {call.sid}")
-                print("Waiting to see if the call is answered...")
-                
-                # Poll the call status to see if they picked up
-                while True:
-                    time.sleep(1)
-                    call_status = client.calls(call.sid).fetch().status
-                    if call_status in ['queued', 'ringing', 'in-progress']:
-                        continue
-                    else:
-                        break
-                
-                print(f"Call ended with status: {call_status}")
-                if call_status == 'completed':
-                    print("Call was picked up successfully!")
-                    return # Exit the function, no need to retry
-                else:
-                    print(f"Call was not answered. (Status: {call_status})")
-            
-            except Exception as e:
-                print(f"Failed to place phone call on attempt {attempt+1}: {e}")
-                
-            if attempt < max_retries - 1:
-                print(f"Retrying call in {retry_delay} seconds...")
-                time.sleep(retry_delay)
+        print(f"Initiating Twilio calls to {len(call_to_numbers)} number(s)...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(call_to_numbers)) as executor:
+            for number in call_to_numbers:
+                executor.submit(_make_single_twilio_call, client, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
                 
     except Exception as e:
         print(f"Failed to initialize Twilio client: {e}")
