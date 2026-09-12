@@ -97,6 +97,32 @@ def send_telegram(bus_list):
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
+def make_twilio_call(date_str):
+    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516")
+    TWILIO_CALL_TO = os.getenv("TWILIO_CALL_TO", "+917003346153")
+    
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN]):
+        print("Skipping Twilio voice call — credentials not configured.")
+        return
+        
+    try:
+        from twilio.rest import Client
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        
+        # TwiML instructs Twilio to speak the text using Text-to-Speech
+        twiml_msg = f'<Response><Say>Redbus ticket found for {date_str}</Say></Response>'
+        
+        call = client.calls.create(
+            twiml=twiml_msg,
+            to=TWILIO_CALL_TO,
+            from_=TWILIO_CALL_FROM
+        )
+        print(f"Phone call initiated! Call SID: {call.sid}")
+    except Exception as e:
+        print(f"Failed to place phone call: {e}")
+
 def get_scraper():
     import ssl
     ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
@@ -276,6 +302,7 @@ def check_bus_availability():
                 
             if new_buses:
                 send_telegram(new_buses)
+                make_twilio_call(DATE)
 
         # Always update state to reflect current bus list (handles removals silently)
         previous_bus_names = current_bus_names
