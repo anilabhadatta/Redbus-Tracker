@@ -97,7 +97,14 @@ def send_telegram(bus_list):
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
-def _make_single_twilio_call(client, twiml_msg, call_from, call_to, max_retries, retry_delay):
+def _make_single_twilio_call(account_sid, auth_token, twiml_msg, call_from, call_to, max_retries, retry_delay):
+    from twilio.rest import Client
+    from twilio.http.http_client import TwilioHttpClient
+    
+    # Initialize a new client per thread with a strict 15-second timeout to prevent hangs
+    http_client = TwilioHttpClient(timeout=15.0)
+    client = Client(account_sid, auth_token, http_client=http_client)
+    
     for attempt in range(max_retries):
         try:
             call = client.calls.create(
@@ -155,16 +162,14 @@ def make_twilio_call(date_str):
         return
         
     try:
-        from twilio.rest import Client
         import concurrent.futures
         
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         twiml_msg = f'<Response><Say>Redbus ticket found for {date_str}</Say></Response>'
         
         print(f"Initiating Twilio calls to {len(call_to_numbers)} number(s)...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(call_to_numbers)) as executor:
             for number in call_to_numbers:
-                executor.submit(_make_single_twilio_call, client, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
+                executor.submit(_make_single_twilio_call, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
                 
     except Exception as e:
         print(f"Failed to initialize Twilio client: {e}")
