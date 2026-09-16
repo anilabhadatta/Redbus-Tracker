@@ -138,41 +138,49 @@ def _make_single_twilio_call(account_sid, auth_token, twiml_msg, call_from, call
             time.sleep(retry_delay)
 
 def make_twilio_call(date_str):
-    TWILIO_CALL_ENABLED = os.getenv("TWILIO_CALL_ENABLED", "false").lower() == "true"
+    TWILIO_CALL_ENABLED = os.getenv("TWILIO_CALL_ENABLED", "false").strip().lower() == "true"
     
     if not TWILIO_CALL_ENABLED:
-        print("Skipping Twilio voice call — disabled via TWILIO_CALL_ENABLED flag.")
+        print("Skipping Twilio voice call — disabled via TWILIO_CALL_ENABLED flag (or it contains invalid characters).")
         return
 
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
-    TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516")
-    twilio_call_to_raw = os.getenv("TWILIO_CALL_TO", "+917003346153")
+    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516").strip()
+    twilio_call_to_raw = os.getenv("TWILIO_CALL_TO", "+917003346153").strip()
     
-    max_retries = int(os.getenv("TWILIO_CALL_MAX_RETRIES", "3"))
-    retry_delay = int(os.getenv("TWILIO_CALL_RETRY_DELAY_SEC", "20"))
+    try:
+        max_retries = int(os.getenv("TWILIO_CALL_MAX_RETRIES", "3").strip())
+        retry_delay = int(os.getenv("TWILIO_CALL_RETRY_DELAY_SEC", "20").strip())
+    except ValueError:
+        max_retries = 3
+        retry_delay = 20
     
     if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN]):
-        print("Skipping Twilio voice call — credentials not configured.")
+        print("Skipping Twilio voice call — TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN is empty.")
         return
         
     call_to_numbers = [num.strip() for num in twilio_call_to_raw.split(',') if num.strip()]
     if not call_to_numbers:
-        print("Skipping Twilio voice call — no destination numbers configured.")
+        print("Skipping Twilio voice call — no destination numbers configured in TWILIO_CALL_TO.")
         return
         
     try:
-        import concurrent.futures
+        import threading
         
         twiml_msg = f'<Response><Say>Redbus ticket found for {date_str}</Say></Response>'
         
-        print(f"Initiating Twilio calls to {len(call_to_numbers)} number(s)...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(call_to_numbers)) as executor:
-            for number in call_to_numbers:
-                executor.submit(_make_single_twilio_call, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
+        print(f"Initiating Twilio calls to {len(call_to_numbers)} number(s) in the background...")
+        for number in call_to_numbers:
+            t = threading.Thread(
+                target=_make_single_twilio_call, 
+                args=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
+            )
+            t.daemon = True
+            t.start()
                 
     except Exception as e:
-        print(f"Failed to initialize Twilio client: {e}")
+        print(f"Failed to initialize Twilio background threads: {e}")
 
 def get_scraper():
     import ssl
