@@ -34,8 +34,8 @@ mail_factory = MailSenderFactory([
     HourMailerSender(HOURMAILER_API_KEY),                                        # Priority 2 (fallback)
 ])
 
-# Tracks the set of bus names from the last notification to detect changes
-previous_bus_names = None  # None = first run (no prior state)
+# Tracks the set of bus IDs from the last notification to detect changes
+previous_bus_ids = None  # None = first run (no prior state)
 
 def send_email(subject, body):
     mail_factory.send(TO_EMAILS, subject, body)
@@ -52,7 +52,7 @@ def send_telegram(bus_list):
         # Build plain text message using MarkdownV2 format for Telegram
         text_msg = "🚍 *NBSTC Bus Found on RedBus!*\n\n"
         for b in bus_list:
-            name = b.get('travelsName', '')
+            name = b.get('serviceName', b.get('travelsName', ''))
             date = b.get('checked_date', '')
             
             time_str = b.get('serviceStartTime', b.get('departureTime', ''))
@@ -194,7 +194,7 @@ def get_scraper():
     )
 
 def check_bus_availability():
-    global previous_bus_names
+    global previous_bus_ids
         
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
     scraper = get_scraper()
@@ -257,31 +257,33 @@ def check_bus_availability():
             
             for bus in inventories:
                 travels_name = bus.get("travelsName", "").upper()
+                service_name = bus.get("serviceName", "").upper()
                 operator_id = bus.get("operatorId")
+                service_id = str(bus.get("serviceId", bus.get("routeId", "")))
                 
                 # Identify NBSTC buses by name or operator ID
-                if "NBSTC" in travels_name or operator_id == 24978:
-                    if travels_name not in seen_route_ids:
+                if "NBSTC" in travels_name or "NBSTC" in service_name or operator_id == 24978:
+                    if service_id not in seen_route_ids:
                         bus['checked_date'] = DATE
                         found_buses.append(bus)
-                        seen_route_ids.add(travels_name)
+                        seen_route_ids.add(service_id)
         else:
             print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
             
-    current_bus_names = frozenset(b.get('travelsName', '').upper() for b in found_buses)
+    current_bus_ids = frozenset(str(b.get('serviceId', b.get('routeId', ''))) for b in found_buses)
 
     if found_buses:
         print(f"Found {len(found_buses)} NBSTC buses!")
         for b in found_buses:
-            print(f" - {b.get('travelsName')} on {b.get('checked_date')}")
+            print(f" - {b.get('serviceName', b.get('travelsName'))} on {b.get('checked_date')}")
 
-        # Determine newly added buses since last check (by name only)
-        added = current_bus_names - previous_bus_names if previous_bus_names is not None else current_bus_names
+        # Determine newly added buses since last check (by ID)
+        added = current_bus_ids - previous_bus_ids if previous_bus_ids is not None else current_bus_ids
 
         if not added:
             print("No new buses added since last check — skipping email.")
         else:
-            if previous_bus_names is None:
+            if previous_bus_ids is None:
                 change_reason = f"First detection: {len(added)} bus(es) found."
             else:
                 change_reason = f"{len(added)} new bus(es) added."
@@ -301,8 +303,9 @@ def check_bus_availability():
 
             # Show ALL buses; highlight newly added ones in green with ★ NEW badge
             for i, b in enumerate(found_buses):
-                name = b.get('travelsName', '')
-                is_new = name.upper() in added
+                b_id = str(b.get('serviceId', b.get('routeId', '')))
+                name = b.get('serviceName', b.get('travelsName', ''))
+                is_new = b_id in added
 
                 if is_new:
                     row_style = "background-color:#d4edda; font-weight:bold;"
@@ -355,7 +358,7 @@ def check_bus_availability():
             send_email(subject, body)
             
             # Send Telegram notification with all newly found buses
-            new_buses = [b for b in found_buses if b.get('travelsName', '').upper() in added]
+            new_buses = [b for b in found_buses if str(b.get('serviceId', b.get('routeId', ''))) in added]
             if not new_buses:
                 new_buses = found_buses
                 
@@ -364,11 +367,11 @@ def check_bus_availability():
                 make_twilio_call(DATE)
 
         # Always update state to reflect current bus list (handles removals silently)
-        previous_bus_names = current_bus_names
+        previous_bus_ids = current_bus_ids
     else:
         print("No NBSTC buses found at this time.")
         # Reset state so re-appearance of buses triggers a fresh email
-        previous_bus_names = current_bus_names
+        previous_bus_ids = current_bus_ids
 
 def main():
     print("Starting NBSTC bus tracker...")
