@@ -26,6 +26,53 @@ TO_EMAILS = os.getenv("TO_EMAILS", "anilabhadatta@gmail.com").split(",")
 
 # Tracker Settings
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
+
+def parse_price(val):
+    if val is None or not str(val).strip():
+        return None
+    try:
+        return float(str(val).replace('₹', '').replace(',', '').strip())
+    except (ValueError, TypeError):
+        return None
+
+def get_price_limits():
+    min_val = parse_price(os.getenv("PRICE_MIN_LIMIT") or os.getenv("MIN_PRICE"))
+    max_val = parse_price(os.getenv("PRICE_MAX_LIMIT") or os.getenv("MAX_PRICE"))
+    return min_val, max_val
+
+def extract_bus_fares(bus):
+    """Extracts all numeric prices (fares) found in a bus inventory item."""
+    prices = []
+    
+    # 1. From fareDetailsBySeatType
+    fare_details = bus.get('fareDetailsBySeatType')
+    if isinstance(fare_details, dict):
+        for seat_type, fares in fare_details.items():
+            if isinstance(fares, list):
+                for f in fares:
+                    if isinstance(f, dict):
+                        for key in ['originalPrice', 'basePrice', 'totalPrice', 'price']:
+                            val = f.get(key)
+                            parsed = parse_price(val)
+                            if parsed is not None:
+                                prices.append(parsed)
+                                
+    # 2. From fareList
+    fare_list = bus.get('fareList')
+    if isinstance(fare_list, list):
+        for val in fare_list:
+            parsed = parse_price(val)
+            if parsed is not None:
+                prices.append(parsed)
+                
+    # 3. Direct fields if any
+    for key in ['minFare', 'maxFare', 'fare', 'totalFare']:
+        val = bus.get(key)
+        parsed = parse_price(val)
+        if parsed is not None:
+            prices.append(parsed)
+            
+    return prices
 # ---------------------
 
 # Build mail factory — senders tried in order; first success wins
@@ -196,6 +243,10 @@ def get_scraper():
 def check_bus_availability():
     global previous_bus_ids
         
+    # Reload environment variables in case .env was modified
+    load_dotenv(override=True)
+    price_min_limit, price_max_limit = get_price_limits()
+        
     # Using cloudscraper to bypass potential bot protections (like Cloudflare)
     scraper = get_scraper()
     
@@ -264,9 +315,25 @@ def check_bus_availability():
                 # Identify NBSTC buses by name or operator ID
                 if "NBSTC" in travels_name or "NBSTC" in service_name or operator_id == 24978:
                     if service_id not in seen_route_ids:
+                        seen_route_ids.add(service_id)
+                        
+                        # Price filter check
+                        fares = extract_bus_fares(bus)
+                        if fares:
+                            min_fare = min(fares)
+                            max_fare = max(fares)
+                            display_name = bus.get('serviceName', bus.get('travelsName', 'NBSTC'))
+                            fare_str_display = f"₹{min_fare:g}" if min_fare == max_fare else f"₹{min_fare:g}-₹{max_fare:g}"
+                            
+                            if price_min_limit is not None and max_fare < price_min_limit:
+                                print(f"Skipping {display_name} (ID: {service_id}) — Fare {fare_str_display} is below PRICE_MIN_LIMIT (₹{price_min_limit:g})")
+                                continue
+                            if price_max_limit is not None and min_fare > price_max_limit:
+                                print(f"Skipping {display_name} (ID: {service_id}) — Fare {fare_str_display} is above PRICE_MAX_LIMIT (₹{price_max_limit:g})")
+                                continue
+                        
                         bus['checked_date'] = DATE
                         found_buses.append(bus)
-                        seen_route_ids.add(service_id)
         else:
             print(f"Unexpected response structure or no data. Keys found: {list(data.keys())[:5]}")
             
@@ -375,7 +442,14 @@ def check_bus_availability():
 
 def main():
     print("Starting NBSTC bus tracker...")
-    print(f"Parameters: FROM={FROM_CITY}, TO={TO_CITY}, LIMIT={LIMIT}")
+    price_min_limit, price_max_limit = get_price_limits()
+    price_filters = []
+    if price_min_limit is not None:
+        price_filters.append(f"MIN=₹{price_min_limit:g}")
+    if price_max_limit is not None:
+        price_filters.append(f"MAX=₹{price_max_limit:g}")
+    price_info = f", PRICE_FILTER=[{', '.join(price_filters)}]" if price_filters else ""
+    print(f"Parameters: FROM={FROM_CITY}, TO={TO_CITY}, LIMIT={LIMIT}{price_info}")
     print(f"Checking every {CHECK_INTERVAL_SECONDS} seconds. Email sent only when bus list changes.\n")
 
     while True:
