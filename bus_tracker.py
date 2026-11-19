@@ -144,7 +144,7 @@ def send_telegram(bus_list):
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
 
-def _make_single_twilio_call(account_sid, auth_token, twiml_msg, call_from, call_to, max_retries, retry_delay):
+def _make_single_twilio_call(account_sid, auth_token, call_url, twiml_msg, call_from, call_to, max_retries, retry_delay):
     from twilio.rest import Client
     from twilio.http.http_client import TwilioHttpClient
     
@@ -154,11 +154,16 @@ def _make_single_twilio_call(account_sid, auth_token, twiml_msg, call_from, call
     
     for attempt in range(max_retries):
         try:
-            call = client.calls.create(
-                twiml=twiml_msg,
-                to=call_to,
-                from_=call_from
-            )
+            call_params = {
+                "to": call_to,
+                "from_": call_from,
+            }
+            if call_url:
+                call_params["url"] = call_url
+            else:
+                call_params["twiml"] = twiml_msg
+
+            call = client.calls.create(**call_params)
             print(f"[{call_to}] Phone call initiated (Attempt {attempt+1}/{max_retries}). Call SID: {call.sid}")
             
             # Poll the call status to see if they picked up
@@ -178,7 +183,12 @@ def _make_single_twilio_call(account_sid, auth_token, twiml_msg, call_from, call
                 print(f"[{call_to}] Call was not answered. (Status: {call_status})")
         
         except Exception as e:
+            err_msg = str(e)
             print(f"[{call_to}] Failed to place phone call on attempt {attempt+1}: {e}")
+            # If trial account rejects raw twiml parameter, switch to webhook URL
+            if ("trial accounts have limitations" in err_msg or "disallowed parameters" in err_msg) and not call_url:
+                call_url = "https://webhooks.twilio.com/v1/Voice/Template/voice_auto_response"
+                print(f"[{call_to}] Switched to Twilio Voice Template URL: {call_url}")
             
         if attempt < max_retries - 1:
             print(f"[{call_to}] Retrying call in {retry_delay} seconds...")
@@ -195,6 +205,7 @@ def make_twilio_call(date_str):
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     TWILIO_CALL_FROM = os.getenv("TWILIO_CALL_FROM", "+18042590516").strip()
     twilio_call_to_raw = os.getenv("TWILIO_CALL_TO", "+917003346153").strip()
+    call_url = os.getenv("TWILIO_CALL_URL", "https://webhooks.twilio.com/v1/Voice/Template/voice_auto_response").strip()
     
     try:
         max_retries = int(os.getenv("TWILIO_CALL_MAX_RETRIES", "3").strip())
@@ -221,7 +232,7 @@ def make_twilio_call(date_str):
         for number in call_to_numbers:
             t = threading.Thread(
                 target=_make_single_twilio_call, 
-                args=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
+                args=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, call_url, twiml_msg, TWILIO_CALL_FROM, number, max_retries, retry_delay)
             )
             t.daemon = True
             t.start()
